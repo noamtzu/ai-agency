@@ -1,0 +1,66 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  gpu_server:
+    build:
+      context: ./gpu_server
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-}
+      MODEL_ID: ${MODEL_ID:-black-forest-labs/FLUX.2-dev}
+      GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
+      MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
+    expose:
+      - "8080"
+    # Enable GPU access (requires NVIDIA Container Toolkit on the VM)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./storage/app.db}
+      STORAGE_DIR: ${STORAGE_DIR:-./storage}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+    volumes:
+      - ./backend/storage:/app/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ./worker
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STORAGE_DIR: ${STORAGE_DIR:-./storage}
+      GPU_SERVER_URL: ${GPU_SERVER_URL:-http://gpu_server:8080}
+      GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
+      GPU_SERVER_TIMEOUT_S: ${GPU_SERVER_TIMEOUT_S:-600}
+    volumes:
+      - ./backend/storage:/app/storage
+    depends_on:
+      - redis
+      - gpu_server
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+      NEXT_PUBLIC_WS_BASE: ${NEXT_PUBLIC_WS_BASE:-ws://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
