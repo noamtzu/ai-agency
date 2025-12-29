@@ -27,6 +27,16 @@ docker compose up --build
 - Frontend: `http://localhost:3000`
 - Redis: `localhost:6379`
 
+### Frontend → Backend base URL (important for remote deploys)
+
+By default, the frontend will call the backend at **the same hostname on port 8000**
+(e.g. UI at `http://<vm-ip>:3000` → API at `http://<vm-ip>:8000`).
+
+If your backend is on a different host/port (or behind a proxy), set:
+
+- `NEXT_PUBLIC_API_BASE=http(s)://<your-api-host>:<port>`
+- `NEXT_PUBLIC_WS_BASE=ws(s)://<your-api-host>:<port>`
+
 ### 3) Flow
 - Create a model (e.g. `model_sarah`)
 - Upload reference images

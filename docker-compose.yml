@@ -58,8 +58,9 @@ services:
     build:
       context: ./frontend
     environment:
-      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
-      NEXT_PUBLIC_WS_BASE: ${NEXT_PUBLIC_WS_BASE:-ws://localhost:8000}
+      # If unset, the frontend will default to "same hostname on :8000" at runtime (see frontend/lib/env.ts).
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}
+      NEXT_PUBLIC_WS_BASE: ${NEXT_PUBLIC_WS_BASE:-}
     ports:
       - "3000:3000"
     depends_on:
