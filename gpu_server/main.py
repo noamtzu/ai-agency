@@ -78,13 +78,13 @@ def health() -> dict:
 
 @app.post("/generate")
 async def generate(
-    prompt: Annotated[str, Form(...)],
-    images: Annotated[list[UploadFile], File(default_factory=list)],
-    seed: Annotated[int | None, Form(None)] = None,
-    num_inference_steps: Annotated[int, Form(30)] = 30,
-    guidance_scale: Annotated[float, Form(4.0)] = 4.0,
-    width: Annotated[int, Form(1024)] = 1024,
-    height: Annotated[int, Form(1024)] = 1024,
+    prompt: str = Form(...),
+    images: list[UploadFile] = File(default_factory=list),
+    seed: int | None = Form(None),
+    num_inference_steps: int = Form(30),
+    guidance_scale: float = Form(4.0),
+    width: int = Form(1024),
+    height: int = Form(1024),
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> Response:
