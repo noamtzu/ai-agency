@@ -13,8 +13,16 @@ services:
       MODEL_ID: ${MODEL_ID:-black-forest-labs/FLUX.2-dev}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
+      # Persist Hugging Face / Diffusers caches to a mounted volume (models are multi-GB).
+      HF_HOME: /hf_cache
+      HF_HUB_CACHE: /hf_cache/hub
+      TRANSFORMERS_CACHE: /hf_cache/transformers
+      DIFFUSERS_CACHE: /hf_cache/diffusers
+      XDG_CACHE_HOME: /hf_cache/xdg
     expose:
       - "8080"
+    volumes:
+      - ./backend/storage/hf_cache:/hf_cache
     # Enable GPU access (requires NVIDIA Container Toolkit on the VM)
     deploy:
       resources:
