@@ -24,12 +24,16 @@ from .celery_app import celery_app
 
 app = FastAPI(title="AI Agency API", version="0.1.0")
 
+_cors_origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+_cors_allow_all = "*" in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
-    allow_credentials=True,
-    allow_methods=["*"] ,
-    allow_headers=["*"] ,
+    allow_origins=["*"] if _cors_allow_all else _cors_origins,
+    # Credentials + wildcard origin isn't valid CORS; default to no credentials when allow-all.
+    allow_credentials=False if _cors_allow_all else True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 STORAGE_DIR = Path(settings.storage_dir)
