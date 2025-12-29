@@ -48,7 +48,25 @@ def _get_pipe():
 
     # Import heavy deps lazily so the process can start quickly and fail with clearer errors.
     import torch
-    from diffusers import Flux2Pipeline
+    import diffusers
+
+    # Diffusers has renamed/added FLUX pipelines across releases. Prefer the most specific class
+    # if available, but fall back gracefully.
+    try:
+        from diffusers import Flux2Pipeline as _FluxPipeline  # type: ignore
+    except Exception:
+        try:
+            from diffusers import FluxPipeline as _FluxPipeline  # type: ignore
+        except Exception:
+            try:
+                from diffusers import AutoPipelineForText2Image as _FluxPipeline  # type: ignore
+            except Exception as e:
+                raise RuntimeError(
+                    "FLUX pipeline class not found in diffusers "
+                    f"(diffusers=={getattr(diffusers, '__version__', 'unknown')}). "
+                    "Tried Flux2Pipeline, FluxPipeline, AutoPipelineForText2Image. "
+                    "Upgrade diffusers or adjust gpu_server/main.py to match your diffusers version."
+                ) from e
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available on this VM (torch.cuda.is_available() is False)")
@@ -60,9 +78,9 @@ def _get_pipe():
 
     # Diffusers has changed auth kwarg names over time; try both.
     try:
-        pipe = Flux2Pipeline.from_pretrained(model_id, torch_dtype=torch_dtype, token=token)
+        pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, token=token)
     except TypeError:
-        pipe = Flux2Pipeline.from_pretrained(model_id, torch_dtype=torch_dtype, use_auth_token=token)
+        pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, use_auth_token=token)
 
     pipe = pipe.to("cuda")
 
