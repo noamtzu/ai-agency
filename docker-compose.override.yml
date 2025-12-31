@@ -1,0 +1,11 @@
+services:
+  worker:
+    environment:
+      GPU_SERVER_URL: ""
+    depends_on:
+      redis:
+        condition: service_started
+
+  gpu_server:
+    profiles: ["gpu"]
+

@@ -27,6 +27,8 @@ docker compose up --build
 - Frontend: `http://localhost:3000`
 - Redis: internal to Docker network (not published to host by default)
 
+By default (no `GPU_SERVER_URL` set), generations use a **mock** image generator so you can run locally without a GPU.
+
 ### Frontend → Backend base URL (important for remote deploys)
 
 By default, the frontend will call the backend at **the same hostname on port 8000**

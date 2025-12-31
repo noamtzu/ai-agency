@@ -92,7 +92,7 @@ def _content_ext(content_type: str | None) -> str:
 
 
 @shared_task(bind=True, name="worker.tasks.generate_consistent_image")
-def generate_consistent_image(self, prompt: str, reference_images_paths: list[str]) -> dict:
+def generate_consistent_image(self, job_id: str, prompt: str, reference_images_paths: list[str]) -> dict:
     """Generate an image using a remote GPU server (recommended) or a local mock fallback.
 
     Expected mapping:
@@ -156,7 +156,7 @@ def generate_consistent_image(self, prompt: str, reference_images_paths: list[st
                 self.update_state(state="PROGRESS", meta={"progress": 100, "message": "done"})
 
                 rel_url = f"/storage/outputs/{out_path.name}"
-                return {"output_url": rel_url, "reference_count": len(reference_images_paths)}
+                return {"job_id": job_id, "output_url": rel_url, "reference_count": len(reference_images_paths)}
             except Exception as e:
                 last_err = e
                 # Retry only on transient-ish errors.
@@ -182,4 +182,4 @@ def generate_consistent_image(self, prompt: str, reference_images_paths: list[st
 
     # Backend serves /storage/**
     rel_url = f"/storage/outputs/{out_path.name}"
-    return {"output_url": rel_url, "reference_count": len(reference_images_paths)}
+    return {"job_id": job_id, "output_url": rel_url, "reference_count": len(reference_images_paths)}

@@ -7,3 +7,8 @@ pillow==11.0.0
 celery[redis]==5.4.0
 redis==5.2.1
 aiofiles==24.1.0
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-requests==0.50b0

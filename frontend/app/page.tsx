@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ModelsLibraryPage } from "../components/ModelsLibraryPage";
 
 export default function Page() {
-  redirect("/models");
+  return <ModelsLibraryPage />;
 }

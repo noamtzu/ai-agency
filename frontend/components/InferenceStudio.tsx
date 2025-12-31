@@ -1,64 +1,49 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ModelImage } from "../lib/api";
-import { API_BASE, WS_BASE } from "../lib/env";
-
-type WsMsg =
-  | { status: "queued"; task_id: string }
-  | { status: "processing"; state?: string; progress?: number; message?: string }
-  | { status: "complete"; result: { output_url: string } }
-  | { status: "error"; message: string };
+import type { GenerationJob, ModelImage } from "../lib/api";
+import { API_BASE } from "../lib/env";
+import { cancelGeneration, createGeneration, listGenerations } from "../lib/api";
 
 export function InferenceStudio({ modelId, images }: { modelId: string; images: ModelImage[] }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("A photo of @image1 wearing a red silk dress, standing in a Parisian street, cinematic lighting.");
-  const [consentConfirmed, setConsentConfirmed] = useState(false);
 
   const [status, setStatus] = useState<string>("idle");
   const [progress, setProgress] = useState<number | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [recentJobs, setRecentJobs] = useState<GenerationJob[]>([]);
+  const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/ws/generate`);
-    wsRef.current = ws;
-
-    ws.onopen = () => setStatus("connected");
-    ws.onclose = () => setStatus("disconnected");
-
-    ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data) as WsMsg;
-      if (msg.status === "queued") {
-        setError(null);
-        setResultUrl(null);
-        setProgress(0);
-        setStatus(`queued (${msg.task_id.slice(0, 8)})`);
-      } else if (msg.status === "processing") {
-        setError(null);
-        setProgress(msg.progress ?? null);
-        setStatus(msg.message ? `processing: ${msg.message}` : `processing (${msg.state ?? ""})`);
-      } else if (msg.status === "complete") {
-        setError(null);
-        setProgress(100);
-        setStatus("complete");
-        setResultUrl(`${API_BASE}${msg.result.output_url}`);
-      } else if (msg.status === "error") {
-        setStatus("error");
-        setError(msg.message);
+    async function loadRecent() {
+      try {
+        const r = await listGenerations(modelId, 10);
+        setRecentJobs(r.jobs);
+      } catch {
+        // ignore
       }
-    };
+    }
+    loadRecent();
 
     return () => {
       try {
-        ws.close();
+        sseRef.current?.close();
       } catch {
         // ignore
       }
     };
-  }, []);
+  }, [modelId]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const selected = useMemo(() => {
     const map = new Map(images.map((i) => [i.id, i] as const));
@@ -81,25 +66,128 @@ export function InferenceStudio({ modelId, images }: { modelId: string; images: 
     setPrompt((p) => (p.includes(tag) ? p : `${p.trim()} ${tag}`.trim()));
   }
 
-  function generate() {
+  function attachToJobEvents(newJobId: string) {
+    try {
+      sseRef.current?.close();
+    } catch {
+      // ignore
+    }
+
+    const es = new EventSource(`${API_BASE}/v1/generations/${encodeURIComponent(newJobId)}/events`);
+    sseRef.current = es;
+    setStatus(`subscribed (${newJobId.slice(0, 8)})`);
+
+    es.addEventListener("job", (evt) => {
+      try {
+        const data = JSON.parse((evt as MessageEvent).data) as { type: "job"; job: GenerationJob };
+        const j = data.job;
+        setProgress(j.progress ?? null);
+        setStatus(j.message ? `${j.status}: ${j.message}` : j.status);
+        if (j.status === "complete" && j.output_url) {
+          setResultUrl(`${API_BASE}${j.output_url}`);
+        }
+        if (j.status === "error") {
+          setError(j.error_message || "Generation failed");
+        }
+        if (j.status === "cancelled") {
+          setError("Cancelled");
+        }
+        if (j.status === "complete" || j.status === "error" || j.status === "cancelled") {
+          try {
+            sseRef.current?.close();
+          } catch {
+            // ignore
+          }
+          sseRef.current = null;
+          try {
+            listGenerations(modelId, 10).then((rec) => setRecentJobs(rec.jobs));
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      }
+    });
+
+    es.addEventListener("error", () => {
+      setStatus("disconnected");
+    });
+  }
+
+  async function generate() {
     setError(null);
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setError("WebSocket not connected");
+    setResultUrl(null);
+    setProgress(0);
+    setToast(null);
+
+    if (!prompt.trim()) {
+      setError("Prompt is required.");
       return;
     }
-    ws.send(
-      JSON.stringify({
+    if (!selectedIds.length) {
+      setError("Select at least 1 reference.");
+      return;
+    }
+
+    try {
+      setStatus("creating job…");
+      const r = await createGeneration({
         model_id: modelId,
         prompt,
         image_ids: selectedIds,
-        consent_confirmed: consentConfirmed
-      })
-    );
+        consent_confirmed: true,
+        source: "studio"
+      });
+      setJobId(r.job_id);
+      setStatus(`queued (${r.job_id.slice(0, 8)})`);
+      attachToJobEvents(r.job_id);
+      setToast({ kind: "success", text: "Generation started" });
+
+      try {
+        const rec = await listGenerations(modelId, 10);
+        setRecentJobs(rec.jobs);
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      setStatus("error");
+      setError(err instanceof Error ? err.message : String(err));
+      setToast({ kind: "error", text: "Failed to start generation" });
+    }
+  }
+
+  async function cancel() {
+    if (!jobId) return;
+    try {
+      await cancelGeneration(jobId);
+      setStatus("cancelled");
+      setError("Cancelled");
+      setToast({ kind: "success", text: "Cancelled" });
+      try {
+        sseRef.current?.close();
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setToast({ kind: "error", text: "Cancel failed" });
+    }
   }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      {toast && (
+        <div
+          className={`fixed right-4 top-4 z-50 rounded-lg border px-4 py-2 text-sm shadow-lg ${
+            toast.kind === "success"
+              ? "border-emerald-900 bg-emerald-950/80 text-emerald-200"
+              : "border-red-900 bg-red-950/80 text-red-200"
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
       <aside className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -129,6 +217,32 @@ export function InferenceStudio({ modelId, images }: { modelId: string; images: 
             );
           })}
         </div>
+
+        {!!recentJobs.length && (
+          <div className="mt-4">
+            <div className="mb-2 text-xs font-medium text-neutral-300">Recent jobs</div>
+            <div className="space-y-1 text-xs text-neutral-400">
+              {recentJobs.slice(0, 5).map((j) => (
+                <button
+                  key={j.id}
+                  type="button"
+                  onClick={() => {
+                    setJobId(j.id);
+                    setError(null);
+                    setResultUrl(j.output_url ? `${API_BASE}${j.output_url}` : null);
+                    setProgress(j.progress ?? null);
+                    setStatus(j.status);
+                    attachToJobEvents(j.id);
+                  }}
+                  className="flex w-full items-center justify-between rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 hover:border-neutral-700"
+                >
+                  <span className="font-mono text-neutral-300">{j.id.slice(0, 8)}</span>
+                  <span className="pl-2 text-neutral-500">{j.status}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-4">
           <div className="mb-2 text-xs font-medium text-neutral-300">Tag mapping</div>
@@ -164,13 +278,6 @@ export function InferenceStudio({ modelId, images }: { modelId: string; images: 
         />
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-neutral-300">
-            <input type="checkbox" checked={consentConfirmed} onChange={(e) => setConsentConfirmed(e.target.checked)} />
-            I confirm I have permission/consent to use these reference images.
-          </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={generate}
@@ -179,7 +286,18 @@ export function InferenceStudio({ modelId, images }: { modelId: string; images: 
           >
             Generate
           </button>
-          <div className="text-xs text-neutral-400">WS: {status}{progress !== null ? ` • ${progress}%` : ""}</div>
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={!jobId}
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-4 py-2 text-sm font-semibold hover:bg-neutral-800 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <div className="text-xs text-neutral-400">
+            Job: {status}
+            {progress !== null ? ` • ${progress}%` : ""}
+          </div>
         </div>
 
         {error && <div className="mt-4 rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div>}

@@ -1,4 +1,22 @@
 services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol/config.yaml:ro
+    expose:
+      - "4317"
+      - "4318"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+    expose:
+      - "4317"
+
   redis:
     image: redis:7-alpine
     # Keep Redis internal; do not expose to the public internet.
@@ -8,12 +26,15 @@ services:
   gpu_server:
     build:
       context: ./gpu_server
+    profiles: ["gpu"]
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-}
       MODEL_ID: ${MODEL_ID:-black-forest-labs/FLUX.2-dev}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_GPU_SERVER:-ai-agency-gpu-server}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       # NVIDIA container runtime hints (harmless if already set by the runtime).
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
@@ -30,6 +51,9 @@ services:
     # Enable GPU access (Ubuntu host requires NVIDIA drivers + NVIDIA Container Toolkit).
     # Note: `deploy:` is ignored by non-Swarm `docker compose`, so use `gpus` instead.
     gpus: all
+    depends_on:
+      - otel-collector
+      - jaeger
 
   backend:
     build:
@@ -38,15 +62,20 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./storage/app.db}
       STORAGE_DIR: ${STORAGE_DIR:-./storage}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Comma-separated allowed origins (set "*" to allow all).
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://0.0.0.0:3000}
       BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
       BACKEND_PORT: ${BACKEND_PORT:-8000}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_BACKEND:-ai-agency-backend}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
     volumes:
       - ./backend/storage:/app/storage
     ports:
       - "8000:8000"
     depends_on:
       - redis
+      - otel-collector
+      - jaeger
 
   worker:
     build:
@@ -54,14 +83,18 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       STORAGE_DIR: ${STORAGE_DIR:-./storage}
-      GPU_SERVER_URL: ${GPU_SERVER_URL:-http://gpu_server:8080}
+      # If empty, the worker falls back to a local mock generator (no GPU required).
+      GPU_SERVER_URL: ${GPU_SERVER_URL:-}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       GPU_SERVER_TIMEOUT_S: ${GPU_SERVER_TIMEOUT_S:-600}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-ai-agency-worker}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
       - redis
-      - gpu_server
+      - otel-collector
+      - jaeger
 
   frontend:
     build:
