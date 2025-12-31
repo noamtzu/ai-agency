@@ -38,6 +38,22 @@ export type GenerationJob = {
 
 export type Project = { id: string; name: string; description?: string | null; created_at: string };
 
+export type ModelListItemV1 = {
+  model: Model;
+  ref_count: number;
+  last_job: {
+    id: string;
+    model_id: string;
+    status: string;
+    progress: number | null;
+    message: string | null;
+    output_url: string | null;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
+};
+
 export type PromptTemplate = {
   id: string;
   name: string;
@@ -76,6 +92,23 @@ async function readError(r: Response): Promise<string> {
 
 export async function listModels(): Promise<Model[]> {
   const r = await fetch(`${API_BASE}/models`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+export async function listModelsV1(input?: {
+  q?: string;
+  project_id?: string;
+  archived?: boolean;
+  limit?: number;
+}): Promise<ModelListItemV1[]> {
+  const params = new URLSearchParams();
+  if (input?.q) params.set("q", input.q);
+  if (input?.project_id) params.set("project_id", input.project_id);
+  if (input?.archived != null) params.set("archived", String(input.archived));
+  if (input?.limit != null) params.set("limit", String(input.limit));
+  const qs = params.toString();
+  const r = await fetch(`${API_BASE}/v1/models${qs ? `?${qs}` : ""}`, { cache: "no-store" });
   if (!r.ok) throw new Error(await readError(r));
   return r.json();
 }

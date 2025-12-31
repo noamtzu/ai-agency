@@ -1,5 +1,7 @@
-from .otel import init_otel
+"""
+Worker package.
 
-init_otel(service_name="ai-agency-worker")
+OpenTelemetry wiring was intentionally removed; keep this module lightweight.
+"""
 
 

@@ -29,17 +29,8 @@ from .storage import (
     make_public_rel_path,
 )
 from .celery_app import celery_app
-from .otel import init_otel
 
 app = FastAPI(title="AI Agency API", version="0.1.0")
-
-init_otel(service_name="ai-agency-backend")
-try:
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-    FastAPIInstrumentor().instrument_app(app)
-except Exception:
-    pass
 
 if (settings.env or "").lower() == "prod":
     allowed_hosts = [h.strip() for h in (settings.allowed_hosts or "").split(",") if h.strip()]

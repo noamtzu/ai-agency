@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import type { Model } from "../lib/api";
 import { createModel } from "../lib/api";
 
-export function ModelCreateForm({ onCreated }: { onCreated: () => void }) {
+export function ModelCreateForm({
+  onCreated,
+  onCreatedModel,
+}: {
+  onCreated?: () => void;
+  onCreatedModel?: (model: Model) => void;
+}) {
   const [id, setId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,10 +21,11 @@ export function ModelCreateForm({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await createModel({ id: id.trim(), display_name: (displayName.trim() || id.trim()) });
+      const created = await createModel({ id: id.trim(), display_name: (displayName.trim() || id.trim()) });
       setId("");
       setDisplayName("");
-      onCreated();
+      onCreatedModel?.(created);
+      onCreated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

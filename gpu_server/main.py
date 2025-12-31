@@ -8,17 +8,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 
-from .otel import init_otel
-
 app = FastAPI(title="AI Agency GPU Server", version="0.1.0")
-
-init_otel(service_name="ai-agency-gpu-server")
-try:
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-    FastAPIInstrumentor().instrument_app(app)
-except Exception:
-    pass
 
 
 def _require_api_key(
