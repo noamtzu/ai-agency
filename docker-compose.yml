@@ -1,8 +1,9 @@
 services:
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Keep Redis internal; do not expose to the public internet.
+    expose:
+      - "6379"
 
   gpu_server:
     build:
@@ -13,6 +14,9 @@ services:
       MODEL_ID: ${MODEL_ID:-black-forest-labs/FLUX.2-dev}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
+      # NVIDIA container runtime hints (harmless if already set by the runtime).
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
       # Persist Hugging Face / Diffusers caches to a mounted volume (models are multi-GB).
       HF_HOME: /hf_cache
       HF_HUB_CACHE: /hf_cache/hub
@@ -23,12 +27,9 @@ services:
       - "8080"
     volumes:
       - ./backend/storage/hf_cache:/hf_cache
-    # Enable GPU access (requires NVIDIA Container Toolkit on the VM)
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: ["gpu"]
+    # Enable GPU access (Ubuntu host requires NVIDIA drivers + NVIDIA Container Toolkit).
+    # Note: `deploy:` is ignored by non-Swarm `docker compose`, so use `gpus` instead.
+    gpus: all
 
   backend:
     build:

@@ -25,7 +25,7 @@ docker compose up --build
 
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
-- Redis: `localhost:6379`
+- Redis: internal to Docker network (not published to host by default)
 
 ### Frontend → Backend base URL (important for remote deploys)
 
@@ -60,10 +60,69 @@ If you want **frontend + backend + redis + worker + gpu_server** all running on 
 - NVIDIA Container Toolkit installed (so Docker containers can use the GPU)
 - A Hugging Face token with access to the gated model (`HF_TOKEN`)
 
+#### GCP setup (configuration checklist)
+
+- **VM**
+  - Create a Compute Engine VM with an **NVIDIA GPU** (e.g. L4/T4/A100 depending on availability).
+  - Use an Ubuntu image (22.04 is a good default).
+  - Set the boot disk large enough for model caches (**100–200GB+** recommended; FLUX + caches are multi‑GB).
+  - Ensure the VM has an **external IPv4** (ephemeral is fine for testing; reserve a static IP for stable URLs).
+
+- **Drivers**
+  - Install NVIDIA drivers on the VM (GCP has a “GPU driver installation” option on some images/flows, or install manually).
+  - Verify on the VM:
+
+```bash
+nvidia-smi
+```
+
+- **Docker GPU runtime**
+  - Install the **NVIDIA Container Toolkit** so Docker containers can access the GPU, then restart Docker.
+  - Verify Docker can see the GPU (example):
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04 nvidia-smi
+```
+
+- **Network tags / firewall**
+  - Either attach a network tag to the VM (e.g. `ai-agency`) and target firewall rules to it, or target firewall rules to the VM directly.
+
 #### GCP firewall (minimum)
 - Allow inbound TCP **3000** to your IP (UI)
-- (Optional) Allow inbound TCP **8000** to your IP (API)
+- (Optional) Allow inbound TCP **8000** to your IP (API; required if you use the default frontend settings)
 - Do **not** expose **6379** (Redis) or **8080** (gpu_server) publicly
+
+Example `gcloud` firewall rules (adjust `--source-ranges`):
+
+```bash
+# UI (Next.js)
+gcloud compute firewall-rules create ai-agency-allow-3000 \
+  --allow tcp:3000 \
+  --source-ranges YOUR_IP/32 \
+  --target-tags ai-agency
+
+# API (FastAPI) - optional
+gcloud compute firewall-rules create ai-agency-allow-8000 \
+  --allow tcp:8000 \
+  --source-ranges YOUR_IP/32 \
+  --target-tags ai-agency
+```
+
+#### Ubuntu host firewall (ufw example)
+
+If you use `ufw` on the VM:
+
+```bash
+sudo ufw allow 3000/tcp
+sudo ufw allow 8000/tcp   # optional (but required if you keep the default frontend→backend behavior)
+sudo ufw deny 6379/tcp
+sudo ufw status
+```
+
+#### Compose notes (remote access)
+
+- The frontend must bind to `0.0.0.0` inside the container to be reachable remotely. This repo’s `npm run dev` does that (`next dev -H 0.0.0.0 -p 3000`).
+- `gpu_server` uses `gpus: all`. On Ubuntu you must have **NVIDIA drivers** + **NVIDIA Container Toolkit** installed for Docker GPU passthrough.
 
 #### Run
 On the VM (from the repo root), create a `.env` file with at least:
@@ -78,6 +137,13 @@ docker compose up -d --build
 
 Open the UI at:
 - `http://<vm-public-ip>:3000`
+
+Quick checks (on the VM):
+
+```bash
+curl -sS http://localhost:8000/health
+docker compose exec gpu_server nvidia-smi
+```
 
 ### 1) Run the GPU server on your VM
 
