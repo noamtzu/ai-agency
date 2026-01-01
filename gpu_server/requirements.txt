@@ -5,14 +5,14 @@ pillow==11.0.0
 
 # FLUX.2 inference stack (install a CUDA-enabled torch build separately on the VM)
 # Newer diffusers is required for FLUX.2 components like AutoencoderKLFlux2.
-diffusers==0.35.1
+diffusers==0.36.0
 # Pin to a modern transformers release: older versions miss some FLUX pipeline deps
 # (e.g. Mistral3ForConditionalGeneration).
-transformers==4.56.2
-accelerate==1.1.1
-safetensors==0.4.5
+transformers==4.57.3
+accelerate==1.12.0
+safetensors==0.7.0
 # NOTE: diffusers requires newer huggingface-hub; use the PyPI package name.
-huggingface-hub==0.34.4
+huggingface-hub==0.36.0
 numpy==2.1.3
 
 
