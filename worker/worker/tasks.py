@@ -5,6 +5,7 @@ import os
 import time
 import textwrap
 import uuid
+import logging
 from pathlib import Path
 
 from celery import shared_task
@@ -13,6 +14,7 @@ import requests
 
 from .runtime_env import resolve_gpu_server_url
 
+logger = logging.getLogger(__name__)
 
 def _storage_dir() -> Path:
     return Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
@@ -76,6 +78,15 @@ def _gpu_server_url() -> str:
 def _gpu_server_api_key() -> str:
     return (os.environ.get("GPU_SERVER_API_KEY") or "").strip()
 
+def _request_headers(*, request_id: str | None) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    api_key = _gpu_server_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if request_id:
+        headers["X-Request-Id"] = request_id
+    return headers
+
 
 def _gpu_timeout_s() -> float:
     # Large models can take a while; default to 10 minutes.
@@ -105,7 +116,7 @@ def _gpu_healthcheck(url: str, headers: dict[str, str]) -> tuple[bool, str | Non
 
 
 @shared_task(bind=True, name="worker.tasks.generate_consistent_image")
-def generate_consistent_image(self, job_id: str, prompt: str, reference_images_paths: list[str]) -> dict:
+def generate_consistent_image(self, job_id: str, prompt: str, reference_images_paths: list[str], request_id: str | None = None) -> dict:
     """Generate an image using a remote GPU server (recommended) or a local mock fallback.
 
     Expected mapping:
@@ -113,27 +124,27 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
       reference_images_paths[0] corresponds to @image1, etc.
     """
 
+    logger.info("rid=%s job=%s starting (refs=%d)", request_id, job_id, len(reference_images_paths))
     self.update_state(state="PROGRESS", meta={"progress": 5, "message": "loading references"})
     refs = [_load_ref(p) for p in reference_images_paths]
 
     gpu_url = _gpu_server_url()
     gpu_err: str | None = None
-    headers: dict[str, str] = {}
+    headers = _request_headers(request_id=request_id)
     if gpu_url:
-        api_key = _gpu_server_api_key()
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
 
         self.update_state(state="PROGRESS", meta={"progress": 25, "message": f"checking GPU server: {gpu_url}/health"})
         ok, err = _gpu_healthcheck(gpu_url, headers=headers)
         if not ok:
             gpu_err = err or "unreachable"
+            logger.warning("rid=%s job=%s GPU server unavailable (%s); falling back to mock", request_id, job_id, gpu_err)
             self.update_state(
                 state="PROGRESS",
                 meta={"progress": 30, "message": f"GPU server unavailable ({gpu_err}); using mock"},
             )
             gpu_url = ""
         else:
+            logger.info("rid=%s job=%s GPU server healthy: %s", request_id, job_id, gpu_url)
             self.update_state(state="PROGRESS", meta={"progress": 35, "message": "calling GPU server"})
 
     if gpu_url:
@@ -160,6 +171,7 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
                     )
                     time.sleep(2 * (attempt - 1))
 
+                logger.info("rid=%s job=%s POST %s/generate (attempt=%d timeout_s=%.1f)", request_id, job_id, gpu_url, attempt, timeout_s)
                 r = requests.post(
                     f"{gpu_url}/generate",
                     data=data,
@@ -181,9 +193,11 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
                 self.update_state(state="PROGRESS", meta={"progress": 100, "message": "done"})
 
                 rel_url = f"/storage/outputs/{out_path.name}"
+                logger.info("rid=%s job=%s complete (output=%s)", request_id, job_id, rel_url)
                 return {"job_id": job_id, "output_url": rel_url, "reference_count": len(reference_images_paths)}
             except Exception as e:
                 last_err = e
+                logger.exception("rid=%s job=%s GPU request error (attempt=%d): %s", request_id, job_id, attempt, e)
                 # Retry only on transient-ish errors.
                 msg = str(e).lower()
                 if "timed out" in msg or "connection" in msg or "503" in msg or "502" in msg or "504" in msg:
@@ -208,4 +222,5 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
 
     # Backend serves /storage/**
     rel_url = f"/storage/outputs/{out_path.name}"
+    logger.info("rid=%s job=%s complete (mock output=%s)", request_id, job_id, rel_url)
     return {"job_id": job_id, "output_url": rel_url, "reference_count": len(reference_images_paths)}

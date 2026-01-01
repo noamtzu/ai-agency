@@ -14,9 +14,9 @@ has_nvidia_gpu() {
   return 0
 }
 
-COMPOSE_PROFILES_EFFECTIVE="${COMPOSE_PROFILES:-}"
+COMPOSE_PROFILES_EFFECTIVE="${:-}"
 
-if [[ -z "$COMPOSE_PROFILES_EFFECTIVE" ]]; then
+if [[ -z "$COMPOSE_PROFILES_EFFECTIVE" COMPOSE_PROFILES]]; then
   if has_nvidia_gpu; then
     COMPOSE_PROFILES_EFFECTIVE="gpu"
   else

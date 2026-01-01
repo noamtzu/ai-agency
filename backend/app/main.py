@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +34,9 @@ from .storage import (
 from .celery_app import celery_app
 from . import llm as llm_service
 from .runtime_env import resolve_gpu_server_status
+
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger("backend")
 
 app = FastAPI(title="AI Agency API", version="0.1.0")
 
@@ -80,8 +86,41 @@ app.mount("/storage", StaticFiles(directory=str(STORAGE_DIR)), name="storage")
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get(_REQUEST_ID_HEADER) or uuid.uuid4().hex
     request.state.request_id = rid
+    start = time.monotonic()
+    client = getattr(request, "client", None)
+    client_ip = getattr(client, "host", None)
+    method = request.method
+    path = request.url.path
+
+    try:
+        resp = await call_next(request)
+        return resp
+    finally:
+        # response headers + access log
+        duration_ms = (time.monotonic() - start) * 1000.0
+        try:
+            status_code = getattr(locals().get("resp", None), "status_code", None)
+        except Exception:
+            status_code = None
+        logger.info(
+            "rid=%s ip=%s %s %s status=%s dur_ms=%.1f",
+            rid,
+            client_ip,
+            method,
+            path,
+            status_code,
+            duration_ms,
+        )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    # Keep security headers separate from request id + logging so we don't lose headers
+    # even if the request logging changes.
+    rid = getattr(getattr(request, "state", None), "request_id", None)
     resp = await call_next(request)
-    resp.headers[_REQUEST_ID_HEADER] = rid
+    if rid:
+        resp.headers[_REQUEST_ID_HEADER] = rid
     # Basic security headers (lightweight; for full CSP, prefer a reverse proxy like Caddy/Nginx).
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -195,13 +234,20 @@ def _sync_job_from_celery(session: Session, job: GenerationJob) -> GenerationJob
     ar = AsyncResult(job.celery_task_id, app=celery_app)
     state = ar.state
     info = ar.info if isinstance(ar.info, dict) else {}
+    prev_status = job.status
+    prev_progress = job.progress
 
     if state in {"PENDING"} and job.status == "queued":
         # no-op
         return job
 
-    if state in {"STARTED", "PROGRESS"}:
+    # Celery may report RECEIVED for a while (prefetch / pool scheduling). Treat it as running so
+    # the UI doesn't appear "stuck queued" even though a worker has the task.
+    if state in {"RECEIVED", "STARTED", "PROGRESS"}:
         job.status = "running"
+        if state == "RECEIVED" and not info:
+            # Preserve any existing message, but default to something helpful.
+            job.message = job.message or "received"
         if "progress" in info:
             try:
                 job.progress = int(info.get("progress"))
@@ -213,6 +259,16 @@ def _sync_job_from_celery(session: Session, job: GenerationJob) -> GenerationJob
         session.add(job)
         session.commit()
         session.refresh(job)
+        if job.status != prev_status or job.progress != prev_progress:
+            logger.info(
+                "job=%s task=%s state=%s status=%s progress=%s msg=%s",
+                job.id,
+                job.celery_task_id,
+                state,
+                job.status,
+                job.progress,
+                (job.message or "")[:200],
+            )
         return job
 
     if ar.ready():
@@ -238,6 +294,7 @@ def _sync_job_from_celery(session: Session, job: GenerationJob) -> GenerationJob
             session.add(job)
             session.commit()
             session.refresh(job)
+            logger.info("job=%s task=%s complete output=%s", job.id, job.celery_task_id, job.output_rel_url)
             return job
 
         job.status = "error"
@@ -247,6 +304,13 @@ def _sync_job_from_celery(session: Session, job: GenerationJob) -> GenerationJob
         session.add(job)
         session.commit()
         session.refresh(job)
+        logger.warning(
+            "job=%s task=%s failed state=%s err=%s",
+            job.id,
+            job.celery_task_id,
+            state,
+            (job.error_message or "")[:500],
+        )
         return job
 
     return job
@@ -255,6 +319,7 @@ def _sync_job_from_celery(session: Session, job: GenerationJob) -> GenerationJob
 @app.post("/v1/generations", status_code=202)
 async def create_generation(request: Request) -> dict:
     data = await request.json()
+    rid = getattr(getattr(request, "state", None), "request_id", None)
     model_id = (data.get("model_id") or "").strip()
     prompt = (data.get("prompt") or "").strip()
     image_ids = data.get("image_ids") or []
@@ -318,7 +383,7 @@ async def create_generation(request: Request) -> dict:
 
         task = celery_app.send_task(
             "worker.tasks.generate_consistent_image",
-            args=[job_id, prompt, image_paths],
+            args=[job_id, prompt, image_paths, rid],
         )
         job.celery_task_id = task.id
         job.updated_at = _now()
@@ -326,7 +391,16 @@ async def create_generation(request: Request) -> dict:
         session.commit()
         session.refresh(job)
 
-        return {"job_id": job.id, "task_id": task.id}
+        logger.info(
+            "rid=%s enqueued job=%s task=%s model_id=%s refs=%d source=%s",
+            rid,
+            job.id,
+            task.id,
+            model_id,
+            len(image_paths),
+            source,
+        )
+        return {"job_id": job.id, "task_id": task.id, "request_id": rid}
 
 
 @app.get("/v1/generations/{job_id}")

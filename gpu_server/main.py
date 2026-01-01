@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import logging
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -13,6 +14,8 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 app = FastAPI(title="AI Agency GPU Server", version="0.1.0")
 
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger("gpu_server")
 
 def _require_api_key(
     authorization: str | None,
@@ -103,6 +106,7 @@ def _get_pipe():
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
     # Diffusers has changed auth kwarg names over time; try both.
+    logger.info("initializing pipeline model_id=%s offload=%s", model_id, _cpu_offload_mode() or "disabled")
     try:
         try:
             pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, token=token)
@@ -132,6 +136,7 @@ def _get_pipe():
         _PIPE_DEVICE = "cuda"
 
     _PIPE = pipe
+    logger.info("pipeline ready device=%s", _PIPE_DEVICE)
     return _PIPE
 
 
@@ -163,7 +168,14 @@ async def generate(
     height: int = Form(1024),
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[str | None, Header()] = None,
 ) -> Response:
+    logger.info(
+        "rid=%s request /generate prompt_len=%d images=%d",
+        x_request_id,
+        len(prompt or ""),
+        len(images or []),
+    )
     _require_api_key(authorization=authorization, x_api_key=x_api_key)
 
     prompt = (prompt or "").strip()
@@ -199,6 +211,7 @@ async def generate(
     try:
         pipe = _get_pipe()
     except Exception as e:
+        logger.exception("rid=%s model init failed: %s", x_request_id, e)
         raise HTTPException(status_code=500, detail=f"Model init failed: {e}")
 
     try:
@@ -217,6 +230,15 @@ async def generate(
             generator=gen,
         )
 
+        logger.info(
+            "rid=%s starting inference steps=%d guidance=%.3f size=%dx%d refs=%d",
+            x_request_id,
+            int(num_inference_steps),
+            float(guidance_scale),
+            int(width),
+            int(height),
+            len(pil_images),
+        )
         if pil_images:
             # Flux2Pipeline APIs vary across versions; try a few common shapes.
             try:
@@ -229,10 +251,14 @@ async def generate(
         else:
             result = pipe(**kwargs)
 
+        logger.info("rid=%s inference done; encoding jpeg", x_request_id)
         out = result.images[0]
         buf = io.BytesIO()
         out.save(buf, format="JPEG", quality=92, optimize=True)
-        return Response(content=buf.getvalue(), media_type="image/jpeg")
+        headers = {}
+        if x_request_id:
+            headers["x-request-id"] = x_request_id
+        return Response(content=buf.getvalue(), media_type="image/jpeg", headers=headers)
     except HTTPException:
         raise
     except Exception as e:
