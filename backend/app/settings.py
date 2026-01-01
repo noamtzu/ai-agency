@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./storage/app.db"
     storage_dir: str = "./storage"
     # Comma-separated list of allowed origins (set "*" to allow all).
-    # Dev-friendly defaults cover both common local hostnames.
-    cors_origins: str = "http://localhost:3000,http://0.0.0.0:3000"
+    # Dev-friendly default allows any origin (no cookies/credentials are enabled when using "*").
+    # For production, set `CORS_ORIGINS` explicitly (e.g. "https://app.yourdomain.com").
+    cors_origins: str = "*"
 
 
 settings = Settings()
