@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import logging
@@ -46,6 +47,15 @@ def _max_image_bytes() -> int:
 _PIPE = None
 _PIPE_DEVICE = None
 _MODEL_ID = "black-forest-labs/FLUX.2-dev"
+_PIPE_INIT_LOCK = asyncio.Lock()
+
+def _max_concurrency() -> int:
+    try:
+        return max(1, int(os.environ.get("GPU_SERVER_MAX_CONCURRENCY", "1")))
+    except Exception:
+        return 1
+
+_INFER_SEMAPHORE = asyncio.Semaphore(_max_concurrency())
 
 
 def _cpu_offload_mode() -> str:
@@ -67,7 +77,7 @@ def _cpu_offload_mode() -> str:
     return v
 
 
-def _get_pipe():
+def _init_pipe_sync():
     global _PIPE, _PIPE_DEVICE
     if _PIPE is not None:
         return _PIPE
@@ -140,6 +150,34 @@ def _get_pipe():
     return _PIPE
 
 
+async def _get_pipe_async():
+    """
+    Ensure the diffusion pipeline is initialized exactly once.
+
+    Without a lock, multiple concurrent requests can race on startup and each
+    initialize a copy of the model, causing immediate GPU OOM.
+    """
+    global _PIPE
+    if _PIPE is not None:
+        return _PIPE
+
+    async with _PIPE_INIT_LOCK:
+        if _PIPE is not None:
+            return _PIPE
+        try:
+            return await asyncio.to_thread(_init_pipe_sync)
+        except Exception:
+            # Best-effort cleanup on failed init (e.g. partial CUDA allocations).
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            raise
+
+
 @app.get("/health")
 def health() -> dict:
     # Keep this lightweight (do not initialize the model here).
@@ -209,7 +247,7 @@ async def generate(
             raise HTTPException(status_code=400, detail=f"Invalid image: {f.filename}")
 
     try:
-        pipe = _get_pipe()
+        pipe = await _get_pipe_async()
     except Exception as e:
         logger.exception("rid=%s model init failed: %s", x_request_id, e)
         raise HTTPException(status_code=500, detail=f"Model init failed: {e}")
@@ -239,17 +277,22 @@ async def generate(
             int(height),
             len(pil_images),
         )
-        if pil_images:
-            # Flux2Pipeline APIs vary across versions; try a few common shapes.
-            try:
-                kwargs["image"] = pil_images if len(pil_images) > 1 else pil_images[0]
-                result = pipe(**kwargs)
-            except TypeError:
-                kwargs.pop("image", None)
-                kwargs["images"] = pil_images
-                result = pipe(**kwargs)
-        else:
-            result = pipe(**kwargs)
+        async with _INFER_SEMAPHORE:
+            def _call_pipe():
+                with torch.inference_mode():
+                    if pil_images:
+                        # Flux2Pipeline APIs vary across versions; try a few common shapes.
+                        try:
+                            local_kwargs = dict(kwargs)
+                            local_kwargs["image"] = pil_images if len(pil_images) > 1 else pil_images[0]
+                            return pipe(**local_kwargs)
+                        except TypeError:
+                            local_kwargs = dict(kwargs)
+                            local_kwargs["images"] = pil_images
+                            return pipe(**local_kwargs)
+                    return pipe(**kwargs)
+
+            result = await asyncio.to_thread(_call_pipe)
 
         logger.info("rid=%s inference done; encoding jpeg", x_request_id)
         out = result.images[0]
@@ -262,6 +305,15 @@ async def generate(
     except HTTPException:
         raise
     except Exception as e:
+        # Best-effort memory recovery after OOM.
+        try:
+            if "out of memory" in str(e).lower():
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
 
 
