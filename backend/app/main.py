@@ -30,6 +30,7 @@ from .storage import (
 )
 from .celery_app import celery_app
 from . import llm as llm_service
+from .runtime_env import resolve_gpu_server_status
 
 app = FastAPI(title="AI Agency API", version="0.1.0")
 
@@ -107,6 +108,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/v1/runtime")
+async def runtime_status() -> dict:
+    gpu = await resolve_gpu_server_status()
+    return {
+        "ok": True,
+        "gpu_server": {
+            "url": gpu.url,
+            "reachable": gpu.reachable,
+            "reason": gpu.reason,
+        },
+    }
 
 
 async def _read_prompt_from_request(request: Request) -> str:

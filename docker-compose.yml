@@ -12,7 +12,7 @@ services:
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-}
-      MODEL_ID: ${MODEL_ID:-black-forest-labs/FLUX.2-dev}
+      MODEL_ID: black-forest-labs/FLUX.2-dev
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
       # NVIDIA container runtime hints (harmless if already set by the runtime).
@@ -58,9 +58,13 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       STORAGE_DIR: ${STORAGE_DIR:-./storage}
       # Default to the local compose GPU server (if not running/reachable, worker will fall back to mock).
-      GPU_SERVER_URL: ${GPU_SERVER_URL:-http://gpu_server:8080}
+      # Optional override. If unset, the worker will auto-discover a reachable GPU server from candidates.
+      GPU_SERVER_URL: ${GPU_SERVER_URL:-}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       GPU_SERVER_TIMEOUT_S: ${GPU_SERVER_TIMEOUT_S:-600}
+      # If GPU_SERVER_URL is explicitly set, it's used as-is. Otherwise, probe candidates.
+      AUTO_GPU_SERVER: ${AUTO_GPU_SERVER:-1}
+      GPU_SERVER_CANDIDATES: ${GPU_SERVER_CANDIDATES:-http://gpu_server:8080,http://127.0.0.1:8080}
     volumes:
       - ./backend/storage:/app/storage
     depends_on:

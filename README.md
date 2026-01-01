@@ -20,7 +20,7 @@ Copy `.env.example` to `.env` and adjust if needed.
 ### 2) Run services
 
 ```bash
-docker compose up --build
+./scripts/compose-up.sh
 ```
 
 - Backend: `http://localhost:8000`
@@ -85,6 +85,15 @@ If you want **frontend + backend + redis + worker + gpu_server** all running on 
 - Docker + Docker Compose v2 installed
 - NVIDIA Container Toolkit installed (so Docker containers can use the GPU)
 - A Hugging Face token with access to the gated model (`HF_TOKEN`)
+
+#### Bring up the stack (auto-detect GPU)
+
+```bash
+./scripts/compose-up.sh
+```
+
+- On a machine where `nvidia-smi` works, the script enables the `gpu` compose profile (starts `gpu_server`).
+- On a machine without an NVIDIA GPU, it starts the non-GPU services only.
 
 #### GCP setup (configuration checklist)
 

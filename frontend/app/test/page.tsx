@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { GenerationJob, Model, ModelImage } from "../../lib/api";
-import { createGeneration, getModel, listModels } from "../../lib/api";
+import { createGeneration, getModel, getRuntime, listModels } from "../../lib/api";
 import { API_BASE } from "../../lib/env";
 
 export default function TestPage() {
@@ -16,6 +16,7 @@ export default function TestPage() {
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [statusText, setStatusText] = useState<string>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [gpuStatus, setGpuStatus] = useState<string>("checking GPU server...");
 
   const esRef = useRef<EventSource | null>(null);
 
@@ -25,6 +26,17 @@ export default function TestPage() {
       const ms = await listModels();
       setModels(ms);
       if (!modelId && ms.length) setModelId(ms[0].id);
+      try {
+        const rt = await getRuntime();
+        const gs = rt.gpu_server;
+        if (gs.reachable) {
+          setGpuStatus(`GPU server: connected (${gs.url})`);
+        } else {
+          setGpuStatus(`GPU server: not connected (${gs.reason || "unavailable"})`);
+        }
+      } catch {
+        setGpuStatus("GPU server: unknown");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -134,6 +146,7 @@ export default function TestPage() {
         <div className="mt-1 text-sm text-neutral-400">
           Runs <span className="font-mono">POST /v1/generations</span> (worker → GPU server FLUX.2 if configured).
         </div>
+        <div className="mt-2 text-sm text-neutral-300">{gpuStatus}</div>
       </div>
 
       {error && (

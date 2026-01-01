@@ -24,7 +24,7 @@ If `GPU_SERVER_API_KEY` is set, requests must include either:
 ## Environment variables
 
 - `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN`: Hugging Face token (needed for gated weights)
-- `MODEL_ID`: defaults to `black-forest-labs/FLUX.2-dev`
+- `MODEL_ID`: **locked** to `black-forest-labs/FLUX.2-dev` (any other value will error)
 - `GPU_SERVER_API_KEY`: optional auth
 - `MAX_IMAGE_BYTES`: per uploaded reference image (default: 8388608)
 

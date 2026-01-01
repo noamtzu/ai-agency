@@ -168,6 +168,15 @@ export async function createLlmCompletion(prompt: string): Promise<{ text: strin
   return r.json();
 }
 
+export async function getRuntime(): Promise<{
+  ok: boolean;
+  gpu_server: { url: string; reachable: boolean; reason: string };
+}> {
+  const r = await fetch(`${API_BASE}/v1/runtime`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
 export async function getGeneration(jobId: string): Promise<{ job: GenerationJob }> {
   const r = await fetch(`${API_BASE}/v1/generations/${encodeURIComponent(jobId)}`, { cache: "no-store" });
   if (!r.ok) throw new Error(await readError(r));

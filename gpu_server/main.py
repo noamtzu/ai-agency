@@ -39,6 +39,7 @@ def _max_image_bytes() -> int:
 
 _PIPE = None
 _PIPE_DEVICE = None
+_MODEL_ID = "black-forest-labs/FLUX.2-dev"
 
 
 def _get_pipe():
@@ -71,7 +72,10 @@ def _get_pipe():
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available on this VM (torch.cuda.is_available() is False)")
 
-    model_id = (os.environ.get("MODEL_ID") or "black-forest-labs/FLUX.2-dev").strip()
+    configured = (os.environ.get("MODEL_ID") or "").strip()
+    if configured and configured != _MODEL_ID:
+        raise RuntimeError(f"MODEL_ID is locked to {_MODEL_ID!r} (got {configured!r})")
+    model_id = _MODEL_ID
     token = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or "").strip() or None
 
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -109,7 +113,7 @@ def health() -> dict:
 
         return {
             "ok": True,
-            "model_id": (os.environ.get("MODEL_ID") or "black-forest-labs/FLUX.2-dev").strip(),
+            "model_id": _MODEL_ID,
             "diffusers": getattr(diffusers, "__version__", "unknown"),
             "transformers": getattr(transformers, "__version__", "unknown"),
         }

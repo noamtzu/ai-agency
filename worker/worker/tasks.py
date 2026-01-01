@@ -11,6 +11,8 @@ from celery import shared_task
 from PIL import Image, ImageDraw, ImageFont
 import requests
 
+from .runtime_env import resolve_gpu_server_url
+
 
 def _storage_dir() -> Path:
     return Path(os.environ.get("STORAGE_DIR", "./storage")).resolve()
@@ -67,7 +69,8 @@ def _draw_overlay(base: Image.Image, prompt: str, headline: str = "Mock output")
 
 
 def _gpu_server_url() -> str:
-    return (os.environ.get("GPU_SERVER_URL") or "").strip().rstrip("/")
+    # Prefer explicit override, but auto-discover when unset.
+    return resolve_gpu_server_url().url
 
 
 def _gpu_server_api_key() -> str:
