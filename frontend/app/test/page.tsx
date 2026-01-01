@@ -1,34 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import type { GenerationJob, Model, ModelImage, PromptTemplate } from "../../lib/api";
-import { createGeneration, getModel, listModels, listPrompts } from "../../lib/api";
+import { useEffect, useRef, useState } from "react";
+import type { GenerationJob, Model, ModelImage } from "../../lib/api";
+import { createGeneration, getModel, listModels } from "../../lib/api";
 import { API_BASE } from "../../lib/env";
 
-function parseTagsJson(tagsJson: string): string[] {
-  try {
-    const v = JSON.parse(tagsJson || "[]");
-    return Array.isArray(v) ? v.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
 export default function TestPage() {
-  const sp = useSearchParams();
-  const prePromptId = sp.get("promptId") || "";
-
   const [models, setModels] = useState<Model[]>([]);
-  const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
-
   const [modelId, setModelId] = useState<string>("");
-  const [promptId, setPromptId] = useState<string>(prePromptId);
   const [images, setImages] = useState<ModelImage[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [prompt, setPrompt] = useState<string>("");
-  const [femaleSubject, setFemaleSubject] = useState<boolean>(false);
 
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [statusText, setStatusText] = useState<string>("idle");
@@ -39,14 +22,9 @@ export default function TestPage() {
   async function bootstrap() {
     setError(null);
     try {
-      const [ms, ps] = await Promise.all([listModels(), listPrompts({ limit: 200 })]);
+      const ms = await listModels();
       setModels(ms);
-      setPrompts(ps);
       if (!modelId && ms.length) setModelId(ms[0].id);
-      if (!prompt && ps.length && prePromptId) {
-        const p = ps.find((x) => x.id === prePromptId);
-        if (p) setPrompt(p.template);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -64,7 +42,7 @@ export default function TestPage() {
       try {
         const data = await getModel(modelId);
         setImages(data.images);
-        setSelectedIds([]); // explicit selection for tests
+        setSelectedIds([]); // if empty, backend uses all model images
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -72,12 +50,11 @@ export default function TestPage() {
   }, [modelId]);
 
   useEffect(() => {
-    const p = prompts.find((x) => x.id === promptId);
-    if (p) setPrompt(p.template);
-  }, [promptId, prompts]);
-
-  const promptMeta = useMemo(() => prompts.find((x) => x.id === promptId) || null, [promptId, prompts]);
-  const promptTags = useMemo(() => (promptMeta ? parseTagsJson(promptMeta.tags_json) : []), [promptMeta]);
+    if (!modelId) {
+      setImages([]);
+      setSelectedIds([]);
+    }
+  }, [modelId]);
 
   function toggle(id: string) {
     setSelectedIds((prev) => {
@@ -99,11 +76,8 @@ export default function TestPage() {
   async function run() {
     setError(null);
     closeStream();
+    setJob(null);
 
-    if (!modelId) {
-      setError("Pick a model");
-      return;
-    }
     if (!prompt.trim()) {
       setError("Prompt is required");
       return;
@@ -111,15 +85,12 @@ export default function TestPage() {
 
     try {
       setStatusText("creating job…");
-      const finalPrompt = femaleSubject ? `female model, woman, ${prompt}` : prompt;
       const res = await createGeneration({
-        model_id: modelId,
-        prompt: finalPrompt,
+        model_id: modelId || undefined,
+        prompt,
         image_ids: selectedIds,
         consent_confirmed: true,
-        source: "test",
-        prompt_template_id: promptId || null,
-        params: { subject: femaleSubject ? "female" : null }
+        source: "test"
       });
       const jobId = res.job_id;
       setStatusText(`streaming job ${jobId.slice(0, 8)}…`);
@@ -158,8 +129,10 @@ export default function TestPage() {
   return (
     <main className="pb-10">
       <div className="mb-6">
-        <div className="text-2xl font-semibold">Test (Prompt Runner)</div>
-        <div className="mt-1 text-sm text-neutral-400">Quickly run prompts against a model and inspect results.</div>
+        <div className="text-2xl font-semibold">Test (FLUX v2 Prompt Runner)</div>
+        <div className="mt-1 text-sm text-neutral-400">
+          Runs <span className="font-mono">POST /v1/generations</span> (worker → GPU server FLUX.2 if configured).
+        </div>
       </div>
 
       {error && (
@@ -171,7 +144,7 @@ export default function TestPage() {
           <div className="mb-3 text-sm font-semibold">Inputs</div>
 
           <label className="block text-sm">
-            <div className="mb-1 text-neutral-300">Model</div>
+            <div className="mb-1 text-neutral-300">Model (reference set) (optional)</div>
             <select
               value={modelId}
               onChange={(e) => setModelId(e.target.value)}
@@ -187,51 +160,12 @@ export default function TestPage() {
           </label>
 
           <label className="mt-3 block text-sm">
-            <div className="mb-1 text-neutral-300">Prompt template (optional)</div>
-            <select
-              value={promptId}
-              onChange={(e) => setPromptId(e.target.value)}
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
-            >
-              <option value="">(none)</option>
-              {prompts.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.id})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {!!promptTags.length && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {promptTags.map((t) => (
-                <span key={t} className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-300">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <label className="mt-3 block text-sm">
             <div className="mb-1 text-neutral-300">Prompt</div>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               className="h-44 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
-          </label>
-
-          <label className="mt-3 flex select-none items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={femaleSubject}
-              onChange={(e) => setFemaleSubject(e.target.checked)}
-              className="mt-1"
-            />
-            <div>
-              <div className="text-neutral-200">Female subject (optional)</div>
-              <div className="text-xs text-neutral-500">When enabled, we prefix your prompt with “female model, woman,”.</div>
-            </div>
           </label>
 
           <div className="mt-4">
@@ -253,7 +187,9 @@ export default function TestPage() {
               })}
               {!images.length && <div className="text-xs text-neutral-500">No references for this model.</div>}
             </div>
-            <div className="mt-2 text-xs text-neutral-500">{selectedIds.length}/10 selected</div>
+            <div className="mt-2 text-xs text-neutral-500">
+              {selectedIds.length ? `${selectedIds.length}/10 selected` : "none selected (backend will use all model images)"}
+            </div>
           </div>
 
           <button

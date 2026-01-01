@@ -141,7 +141,7 @@ export async function uploadModelImages(modelId: string, files: File[]): Promise
 }
 
 export async function createGeneration(input: {
-  model_id: string;
+  model_id?: string;
   prompt: string;
   image_ids?: string[];
   consent_confirmed: boolean;
@@ -153,6 +153,16 @@ export async function createGeneration(input: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input)
+  });
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
+}
+
+export async function createLlmCompletion(prompt: string): Promise<{ text: string }> {
+  const r = await fetch(`${API_BASE}/v1/llm`, {
+    method: "POST",
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    body: prompt
   });
   if (!r.ok) throw new Error(await readError(r));
   return r.json();

@@ -29,6 +29,7 @@ from .storage import (
     make_public_rel_path,
 )
 from .celery_app import celery_app
+from . import llm as llm_service
 
 app = FastAPI(title="AI Agency API", version="0.1.0")
 
@@ -106,6 +107,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+async def _read_prompt_from_request(request: Request) -> str:
+    ct = (request.headers.get("content-type") or "").lower()
+    if "text/plain" in ct:
+        raw = await request.body()
+        return (raw or b"").decode("utf-8", errors="replace").strip()
+    data = await request.json()
+    return str((data or {}).get("prompt") or "").strip()
+
+
+@app.post("/v1/llm")
+async def llm_complete(request: Request) -> dict:
+    prompt = await _read_prompt_from_request(request)
+    try:
+        r = await llm_service.complete(prompt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"text": r.text, "provider": r.provider, "model": r.model}
 
 
 @app.get("/debug/cors")
@@ -229,29 +251,37 @@ async def create_generation(request: Request) -> dict:
 
     if not consent_confirmed:
         raise HTTPException(status_code=400, detail="consent_confirmed must be true")
-    if not model_id or not prompt:
-        raise HTTPException(status_code=400, detail="model_id and prompt required")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt required")
     if len(prompt) > 4000:
         raise HTTPException(status_code=400, detail="prompt too long")
+    if image_ids and not model_id:
+        raise HTTPException(status_code=400, detail="model_id is required when image_ids are provided")
 
     with Session(engine) as session:
-        m = session.get(Model, model_id)
-        if not m:
-            raise HTTPException(status_code=404, detail="model not found")
-
-        q = select(ModelImage).where(ModelImage.model_id == model_id).order_by(ModelImage.created_at.asc())
-        all_images = list(session.exec(q))
-
-        if image_ids:
-            selected = [img for img in all_images if img.id in set(image_ids)]
+        # Optional model_id: allow pure text-to-image runs without any saved "reference set".
+        # We still persist a job record, so store a stable sentinel model id.
+        if not model_id:
+            selected: list[ModelImage] = []
+            image_paths: list[str] = []
+            canonical_ids: list[str] = []
+            model_id = "__text2img__"
         else:
-            selected = all_images
+            m = session.get(Model, model_id)
+            if not m:
+                raise HTTPException(status_code=404, detail="model not found")
 
-        if not selected:
-            raise HTTPException(status_code=400, detail="no reference images")
+            q = select(ModelImage).where(ModelImage.model_id == model_id).order_by(ModelImage.created_at.asc())
+            all_images = list(session.exec(q))
 
-        image_paths = [str(STORAGE_DIR / img.rel_path) for img in selected]
-        canonical_ids = [img.id for img in selected]
+            if image_ids:
+                selected = [img for img in all_images if img.id in set(image_ids)]
+            else:
+                selected = all_images
+
+            # Allow zero reference images (pure text-to-image).
+            image_paths = [str(STORAGE_DIR / img.rel_path) for img in selected]
+            canonical_ids = [img.id for img in selected]
 
         job_id = uuid.uuid4().hex
         job = GenerationJob(
@@ -654,8 +684,7 @@ def retry_job(job_id: str) -> dict:
             selected = [img for img in all_images if img.id in set(image_ids)]
         else:
             selected = all_images
-        if not selected:
-            raise HTTPException(status_code=400, detail="no reference images")
+        # Allow zero reference images (pure text-to-image).
         image_paths = [str(STORAGE_DIR / img.rel_path) for img in selected]
         canonical_ids = [img.id for img in selected]
 
@@ -808,9 +837,7 @@ async def ws_generate(websocket: WebSocket):
                 else:
                     selected = all_images
 
-                if not selected:
-                    await websocket.send_json({"status": "error", "message": "no reference images"})
-                    continue
+                # Allow zero reference images (pure text-to-image).
 
                 image_paths = [str(STORAGE_DIR / img.rel_path) for img in selected]
 
