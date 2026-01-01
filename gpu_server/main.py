@@ -78,9 +78,20 @@ def _get_pipe():
 
     # Diffusers has changed auth kwarg names over time; try both.
     try:
-        pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, token=token)
-    except TypeError:
-        pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, use_auth_token=token)
+        try:
+            pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, token=token)
+        except TypeError:
+            pipe = _FluxPipeline.from_pretrained(model_id, torch_dtype=torch_dtype, use_auth_token=token)
+    except Exception as e:
+        msg = str(e)
+        # Common failure mode for gated models: missing token or token without access.
+        if "gated repo" in msg.lower() or "401" in msg or "unauthorized" in msg.lower():
+            raise RuntimeError(
+                "Hugging Face auth required for this MODEL_ID (gated weights). "
+                "Ensure you have been granted access on Hugging Face and that the container has a valid token set via "
+                "HF_TOKEN or HUGGINGFACE_HUB_TOKEN."
+            ) from e
+        raise
 
     pipe = pipe.to("cuda")
 

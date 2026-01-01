@@ -1,7 +1,7 @@
 services:
   worker:
     environment:
-      GPU_SERVER_URL: ""
+      # Do not override GPU_SERVER_URL here; allow .env / docker-compose.yml defaults to apply.
     depends_on:
       redis:
         condition: service_started
