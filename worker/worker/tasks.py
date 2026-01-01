@@ -116,7 +116,14 @@ def _gpu_healthcheck(url: str, headers: dict[str, str]) -> tuple[bool, str | Non
 
 
 @shared_task(bind=True, name="worker.tasks.generate_consistent_image")
-def generate_consistent_image(self, job_id: str, prompt: str, reference_images_paths: list[str], request_id: str | None = None) -> dict:
+def generate_consistent_image(
+    self,
+    job_id: str,
+    prompt: str,
+    reference_images_paths: list[str],
+    request_id: str | None = None,
+    params: dict | None = None,
+) -> dict:
     """Generate an image using a remote GPU server (recommended) or a local mock fallback.
 
     Expected mapping:
@@ -159,7 +166,14 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
                 raise RuntimeError(f"Failed to read reference image: {p} ({e})")
             files.append(("images", (f"image{idx+1}.jpg", raw, "image/jpeg")))
 
-        data = {"prompt": prompt}
+        data: dict[str, str] = {"prompt": prompt}
+        if isinstance(params, dict):
+            # Optional tuning knobs passed through from API/UI.
+            for k in ("seed", "num_inference_steps", "guidance_scale", "width", "height"):
+                v = params.get(k)
+                if v is None:
+                    continue
+                data[k] = str(v)
 
         last_err: Exception | None = None
         for attempt in range(1, 4):

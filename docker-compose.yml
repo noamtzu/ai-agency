@@ -17,7 +17,8 @@ services:
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
       # VRAM/allocator tuning. For 24GB-class GPUs, enabling offload often avoids init OOM.
       # Values: "", "model", "sequential"
-      DIFFUSERS_CPU_OFFLOAD: ${DIFFUSERS_CPU_OFFLOAD:-model}
+      # NOTE: If you hit init OOM, try `DIFFUSERS_CPU_OFFLOAD=sequential` (lowest VRAM, slower).
+      DIFFUSERS_CPU_OFFLOAD: ${DIFFUSERS_CPU_OFFLOAD:-sequential}
       PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
       # Prevent concurrent inference requests from multiplying peak VRAM usage.
       GPU_SERVER_MAX_CONCURRENCY: ${GPU_SERVER_MAX_CONCURRENCY:-1}

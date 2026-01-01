@@ -12,6 +12,11 @@ export default function TestPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [prompt, setPrompt] = useState<string>("");
+  const [width, setWidth] = useState<number>(768);
+  const [height, setHeight] = useState<number>(768);
+  const [steps, setSteps] = useState<number>(20);
+  const [guidance, setGuidance] = useState<number>(4.0);
+  const [seed, setSeed] = useState<string>("");
 
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [statusText, setStatusText] = useState<string>("idle");
@@ -103,6 +108,14 @@ export default function TestPage() {
         image_ids: selectedIds,
         consent_confirmed: true,
         source: "test"
+        ,
+        params: {
+          width,
+          height,
+          num_inference_steps: steps,
+          guidance_scale: guidance,
+          seed: seed.trim() ? Number(seed) : undefined
+        }
       });
       const jobId = res.job_id;
       setStatusText(`streaming job ${jobId.slice(0, 8)}…`);
@@ -181,6 +194,56 @@ export default function TestPage() {
               className="h-44 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
           </label>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <label className="block text-sm">
+              <div className="mb-1 text-neutral-300">Width</div>
+              <input
+                type="number"
+                value={width}
+                onChange={(e) => setWidth(Number(e.target.value))}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
+              />
+            </label>
+            <label className="block text-sm">
+              <div className="mb-1 text-neutral-300">Height</div>
+              <input
+                type="number"
+                value={height}
+                onChange={(e) => setHeight(Number(e.target.value))}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
+              />
+            </label>
+            <label className="block text-sm">
+              <div className="mb-1 text-neutral-300">Steps</div>
+              <input
+                type="number"
+                value={steps}
+                onChange={(e) => setSteps(Number(e.target.value))}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
+              />
+            </label>
+            <label className="block text-sm">
+              <div className="mb-1 text-neutral-300">Guidance</div>
+              <input
+                type="number"
+                step="0.1"
+                value={guidance}
+                onChange={(e) => setGuidance(Number(e.target.value))}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
+              />
+            </label>
+            <label className="col-span-2 block text-sm">
+              <div className="mb-1 text-neutral-300">Seed (optional)</div>
+              <input
+                type="text"
+                value={seed}
+                onChange={(e) => setSeed(e.target.value)}
+                placeholder="e.g. 1234"
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 outline-none focus:border-blue-600"
+              />
+            </label>
+          </div>
 
           <div className="mt-4">
             <div className="mb-2 text-xs font-medium text-neutral-300">References (optional)</div>

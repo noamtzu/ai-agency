@@ -327,6 +327,8 @@ async def create_generation(request: Request) -> dict:
     source = (data.get("source") or "api").strip() or "api"
     prompt_template_id = (data.get("prompt_template_id") or "").strip() or None
     params = data.get("params")
+    if not isinstance(params, dict):
+        params = None
 
     if not consent_confirmed:
         raise HTTPException(status_code=400, detail="consent_confirmed must be true")
@@ -383,7 +385,7 @@ async def create_generation(request: Request) -> dict:
 
         task = celery_app.send_task(
             "worker.tasks.generate_consistent_image",
-            args=[job_id, prompt, image_paths, rid],
+            args=[job_id, prompt, image_paths, rid, params],
         )
         job.celery_task_id = task.id
         job.updated_at = _now()
@@ -797,7 +799,7 @@ def retry_job(job_id: str) -> dict:
 
         task = celery_app.send_task(
             "worker.tasks.generate_consistent_image",
-            args=[new_id, old.prompt, image_paths],
+            args=[new_id, old.prompt, image_paths, None, json.loads(old.params_json or "{}")],
         )
         job.celery_task_id = task.id
         job.updated_at = _now()
@@ -931,7 +933,7 @@ async def ws_generate(websocket: WebSocket):
 
             task = celery_app.send_task(
                 "worker.tasks.generate_consistent_image",
-                args=[uuid.uuid4().hex, prompt, image_paths],
+                args=[uuid.uuid4().hex, prompt, image_paths, None, None],
             )
             await websocket.send_json({"status": "queued", "task_id": task.id})
 
