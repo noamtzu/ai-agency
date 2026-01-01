@@ -102,7 +102,19 @@ def _get_pipe():
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True}
+    # Keep this lightweight (do not initialize the model here).
+    try:
+        import diffusers
+        import transformers
+
+        return {
+            "ok": True,
+            "model_id": (os.environ.get("MODEL_ID") or "black-forest-labs/FLUX.2-dev").strip(),
+            "diffusers": getattr(diffusers, "__version__", "unknown"),
+            "transformers": getattr(transformers, "__version__", "unknown"),
+        }
+    except Exception:
+        return {"ok": True}
 
 
 @app.post("/generate")

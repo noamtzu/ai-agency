@@ -5,7 +5,9 @@ pillow==11.0.0
 
 # FLUX.2 inference stack (install a CUDA-enabled torch build separately on the VM)
 diffusers==0.31.0
-transformers==4.47.0
+# Pin to a modern transformers release: older versions miss some FLUX pipeline deps
+# (e.g. Mistral3ForConditionalGeneration).
+transformers==4.56.2
 accelerate==1.1.1
 safetensors==0.4.5
 huggingface_hub==0.26.5
