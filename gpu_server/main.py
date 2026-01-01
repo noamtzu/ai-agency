@@ -42,6 +42,25 @@ _PIPE_DEVICE = None
 _MODEL_ID = "black-forest-labs/FLUX.2-dev"
 
 
+def _cpu_offload_mode() -> str:
+    """
+    Controls VRAM-saving strategies.
+
+    Values:
+    - "" / "0": disabled (default; fastest, highest VRAM)
+    - "1" / "model": enable model CPU offload (good for ~24GB cards)
+    - "sequential": enable sequential CPU offload (slowest, lowest peak VRAM)
+    """
+    v = (os.environ.get("DIFFUSERS_CPU_OFFLOAD") or "").strip().lower()
+    if v in {"", "0", "false", "no"}:
+        return ""
+    if v in {"1", "true", "yes", "model"}:
+        return "model"
+    if v in {"sequential", "seq"}:
+        return "sequential"
+    return v
+
+
 def _get_pipe():
     global _PIPE, _PIPE_DEVICE
     if _PIPE is not None:
@@ -97,10 +116,19 @@ def _get_pipe():
             ) from e
         raise
 
-    pipe = pipe.to("cuda")
+    # Optional VRAM-saving modes. These trade speed for fitting on smaller GPUs.
+    offload = _cpu_offload_mode()
+    if offload == "sequential":
+        pipe.enable_sequential_cpu_offload()
+        _PIPE_DEVICE = "cuda(offload=sequential)"
+    elif offload == "model":
+        pipe.enable_model_cpu_offload()
+        _PIPE_DEVICE = "cuda(offload=model)"
+    else:
+        pipe = pipe.to("cuda")
+        _PIPE_DEVICE = "cuda"
 
     _PIPE = pipe
-    _PIPE_DEVICE = "cuda"
     return _PIPE
 
 
