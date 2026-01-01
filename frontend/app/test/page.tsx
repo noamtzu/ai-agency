@@ -28,6 +28,7 @@ export default function TestPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [prompt, setPrompt] = useState<string>("");
+  const [femaleSubject, setFemaleSubject] = useState<boolean>(false);
 
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [statusText, setStatusText] = useState<string>("idle");
@@ -110,13 +111,15 @@ export default function TestPage() {
 
     try {
       setStatusText("creating job…");
+      const finalPrompt = femaleSubject ? `female model, woman, ${prompt}` : prompt;
       const res = await createGeneration({
         model_id: modelId,
-        prompt,
+        prompt: finalPrompt,
         image_ids: selectedIds,
         consent_confirmed: true,
         source: "test",
-        prompt_template_id: promptId || null
+        prompt_template_id: promptId || null,
+        params: { subject: femaleSubject ? "female" : null }
       });
       const jobId = res.job_id;
       setStatusText(`streaming job ${jobId.slice(0, 8)}…`);
@@ -216,6 +219,19 @@ export default function TestPage() {
               onChange={(e) => setPrompt(e.target.value)}
               className="h-44 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-blue-600"
             />
+          </label>
+
+          <label className="mt-3 flex select-none items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={femaleSubject}
+              onChange={(e) => setFemaleSubject(e.target.checked)}
+              className="mt-1"
+            />
+            <div>
+              <div className="text-neutral-200">Female subject (optional)</div>
+              <div className="text-xs text-neutral-500">When enabled, we prefix your prompt with “female model, woman,”.</div>
+            </div>
           </label>
 
           <div className="mt-4">
