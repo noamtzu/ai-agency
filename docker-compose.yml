@@ -17,8 +17,8 @@ services:
       MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-8388608}
       # VRAM/allocator tuning. For 24GB-class GPUs, enabling offload often avoids init OOM.
       # Values: "", "model", "sequential"
-      DIFFUSERS_CPU_OFFLOAD: ${DIFFUSERS_CPU_OFFLOAD:-}
-      PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-}
+      DIFFUSERS_CPU_OFFLOAD: ${DIFFUSERS_CPU_OFFLOAD:-model}
+      PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
       # NVIDIA container runtime hints (harmless if already set by the runtime).
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}

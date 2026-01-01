@@ -8,6 +8,9 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 
+# Reduce CUDA allocator fragmentation by default (does not override explicit user setting).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 app = FastAPI(title="AI Agency GPU Server", version="0.1.0")
 
 
@@ -47,15 +50,15 @@ def _cpu_offload_mode() -> str:
     Controls VRAM-saving strategies.
 
     Values:
-    - "" / "0": disabled (default; fastest, highest VRAM)
-    - "1" / "model": enable model CPU offload (good for ~24GB cards)
+    - "" / "1" / "model": enable model CPU offload (default; good for ~24GB cards)
+    - "0": disabled (fastest, highest VRAM)
     - "sequential": enable sequential CPU offload (slowest, lowest peak VRAM)
     """
     v = (os.environ.get("DIFFUSERS_CPU_OFFLOAD") or "").strip().lower()
-    if v in {"", "0", "false", "no"}:
-        return ""
-    if v in {"1", "true", "yes", "model"}:
+    if v in {"", "1", "true", "yes", "model"}:
         return "model"
+    if v in {"0", "false", "no", "off", "disabled"}:
+        return ""
     if v in {"sequential", "seq"}:
         return "sequential"
     return v
