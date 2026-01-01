@@ -57,8 +57,8 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       STORAGE_DIR: ${STORAGE_DIR:-./storage}
-      # If empty, the worker falls back to a local mock generator (no GPU required).
-      GPU_SERVER_URL: ${GPU_SERVER_URL:-}
+      # Default to the local compose GPU server (if not running/reachable, worker will fall back to mock).
+      GPU_SERVER_URL: ${GPU_SERVER_URL:-http://gpu_server:8080}
       GPU_SERVER_API_KEY: ${GPU_SERVER_API_KEY:-}
       GPU_SERVER_TIMEOUT_S: ${GPU_SERVER_TIMEOUT_S:-600}
     volumes:

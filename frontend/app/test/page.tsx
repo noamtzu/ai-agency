@@ -102,7 +102,8 @@ export default function TestPage() {
         try {
           const payload = JSON.parse((evt as MessageEvent).data) as { type: string; job: GenerationJob };
           setJob(payload.job);
-          setStatusText(`${payload.job.status}${payload.job.progress != null ? ` • ${payload.job.progress}%` : ""}`);
+          const msg = payload.job.message ? ` • ${payload.job.message}` : "";
+          setStatusText(`${payload.job.status}${payload.job.progress != null ? ` • ${payload.job.progress}%` : ""}${msg}`);
           if (payload.job.status === "complete" || payload.job.status === "error" || payload.job.status === "cancelled") {
             closeStream();
           }

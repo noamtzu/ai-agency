@@ -46,7 +46,7 @@ def _make_grid(images: list[Image.Image], tile: int = 512, cols: int = 3) -> Ima
     return canvas
 
 
-def _draw_overlay(base: Image.Image, prompt: str) -> Image.Image:
+def _draw_overlay(base: Image.Image, prompt: str, headline: str = "Mock output") -> Image.Image:
     im = base.copy()
     draw = ImageDraw.Draw(im)
 
@@ -61,7 +61,7 @@ def _draw_overlay(base: Image.Image, prompt: str) -> Image.Image:
     except Exception:
         font = ImageFont.load_default()
 
-    text = "Mock output (replace with FLUX.2 worker)\n" + "\n".join(textwrap.wrap(prompt, width=80)[:4])
+    text = f"{headline}\n" + "\n".join(textwrap.wrap(prompt, width=80)[:4])
     draw.text((18, im.height - bar_h + 18), text, fill=(255, 255, 255), font=font)
     return im
 
@@ -91,6 +91,16 @@ def _content_ext(content_type: str | None) -> str:
     return "jpg"
 
 
+def _gpu_healthcheck(url: str, headers: dict[str, str]) -> tuple[bool, str | None]:
+    try:
+        r = requests.get(f"{url}/health", headers=headers, timeout=(2, 2))
+        if r.status_code != 200:
+            return False, f"health {r.status_code}: {(r.text or '')[:2000]}"
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 @shared_task(bind=True, name="worker.tasks.generate_consistent_image")
 def generate_consistent_image(self, job_id: str, prompt: str, reference_images_paths: list[str]) -> dict:
     """Generate an image using a remote GPU server (recommended) or a local mock fallback.
@@ -104,14 +114,26 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
     refs = [_load_ref(p) for p in reference_images_paths]
 
     gpu_url = _gpu_server_url()
+    gpu_err: str | None = None
+    headers: dict[str, str] = {}
     if gpu_url:
-        self.update_state(state="PROGRESS", meta={"progress": 35, "message": "calling GPU server"})
-
-        headers: dict[str, str] = {}
         api_key = _gpu_server_api_key()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        self.update_state(state="PROGRESS", meta={"progress": 25, "message": f"checking GPU server: {gpu_url}/health"})
+        ok, err = _gpu_healthcheck(gpu_url, headers=headers)
+        if not ok:
+            gpu_err = err or "unreachable"
+            self.update_state(
+                state="PROGRESS",
+                meta={"progress": 30, "message": f"GPU server unavailable ({gpu_err}); using mock"},
+            )
+            gpu_url = ""
+        else:
+            self.update_state(state="PROGRESS", meta={"progress": 35, "message": "calling GPU server"})
+
+    if gpu_url:
         timeout_s = _gpu_timeout_s()
 
         # Build multipart payload: prompt + images[]
@@ -172,7 +194,8 @@ def generate_consistent_image(self, job_id: str, prompt: str, reference_images_p
     grid = _make_grid(refs, tile=512, cols=3)
 
     self.update_state(state="PROGRESS", meta={"progress": 70, "message": "rendering output (mock)"})
-    out = _draw_overlay(grid, prompt)
+    headline = "Mock output" if not gpu_err else f"Mock output (GPU server unavailable: {gpu_err})"
+    out = _draw_overlay(grid, prompt, headline=headline)
 
     out_id = uuid.uuid4().hex
     out_path = _outputs_dir() / f"gen-{out_id}.jpg"

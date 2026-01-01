@@ -39,6 +39,30 @@ If your backend is on a different host/port (or behind a proxy), set:
 - `NEXT_PUBLIC_API_BASE=http(s)://<your-api-host>:<port>`
 - `NEXT_PUBLIC_WS_BASE=ws(s)://<your-api-host>:<port>`
 
+### CORS (important when UI is on :3000 and API is on :8000)
+
+If the browser console shows a CORS error like “No `Access-Control-Allow-Origin` header”, verify what the **live API** is returning:
+
+```bash
+curl -i \
+  -H 'Origin: http://<vm-ip>:3000' \
+  http://<vm-ip>:8000/health
+```
+
+You should see `access-control-allow-origin: *` (or your specific origin).
+
+If not, set `CORS_ORIGINS` for the backend (recommended in production: set the exact UI origin; for quick testing you can use `*`), then restart/rebuild:
+
+```bash
+# allow only the UI origin (recommended)
+export CORS_ORIGINS="http://<vm-ip>:3000"
+
+# OR (quick test) allow all origins
+# export CORS_ORIGINS="*"
+
+docker compose up -d --build backend
+```
+
 ### 3) Flow
 - Create a model (e.g. `model_sarah`)
 - Upload reference images
